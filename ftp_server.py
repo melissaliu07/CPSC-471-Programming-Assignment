@@ -14,7 +14,7 @@ def handle_client_control_channel(control_sock, client_addr):
 
     while True:
         try:
-            # Receive command using recv_cmd
+            #recv_cmd
             command, args = recv_cmd(control_sock)
             if not command:
                 break
@@ -45,7 +45,7 @@ def handle_client_control_channel(control_sock, client_addr):
     control_sock.close()
 
 
-# Handle the "LIST" command
+#LIST command
 def handle_ls(control_sock):
     try:
         files = os.listdir(".")
@@ -55,7 +55,7 @@ def handle_ls(control_sock):
         send_response(control_sock, False, str(e))
 
 
-# Handle the "GET" command
+#GET command
 def handle_get(control_sock, filename):
     if not os.path.exists(filename):
         send_response(control_sock, False, "File not found")
@@ -63,7 +63,7 @@ def handle_get(control_sock, filename):
 
     send_response(control_sock, True, "Ready to send file")
 
-    # Set up data channel
+    #Set up data channel
     data_sock, data_port = create_data_socket()
     if not data_sock:
         send_response(control_sock, False, "Failed to create data channel")
@@ -82,11 +82,11 @@ def handle_get(control_sock, filename):
             print(f"Error sending file: {e}")
 
 
-# Handle the "PUT" command
+#PUT command
 def handle_put(control_sock, filename):
     send_response(control_sock, True, "Ready to receive file")
 
-    # Set up data channel
+    #Set up data channel
     data_sock, data_port = create_data_socket()
     if not data_sock:
         send_response(control_sock, False, "Failed to create data channel")
@@ -108,7 +108,7 @@ def handle_put(control_sock, filename):
             print(f"Error receiving file: {e}")
 
 
-# Main server function
+#Main server 
 def start_server(port):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as welcome_sock:
         welcome_sock.bind(("", port))
