@@ -1,108 +1,103 @@
 import socket
 import sys
 import os
-from ftp_helpers import (
-    CMD_LIST, CMD_GET, CMD_PUT, CMD_QUIT,
-    send_cmd, receive_response,
-    recv_all, send_all, BUFFER_SIZE
-)
+
+BUFFER_SIZE = 1024
+
 
 def connect_data_channel(server_address, data_port):
-    """
-    Connect to the server's data channel using the provided port.
-    """
+    """Connect to server's data port."""
+    data_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    data_sock.connect((server_address, data_port))
+    return data_sock
+
+
+def handle_ls(control_sock):
+    """List files on server."""
     try:
-        data_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        data_sock.connect((server_address, data_port))
-        return data_sock
+        control_sock.sendall(b"ls\r\n")
+        response = control_sock.recv(BUFFER_SIZE)
+        
+        if response:
+            response_text = response.decode('utf-8').strip()
+            if response_text.startswith("success"):
+                _, *files = response_text.split()
+                print("\nServer files:")
+                for file in files:
+                    print(file)
+            else:
+                print("Error:", response_text)
     except Exception as e:
-        print(f"Error connecting to data channel: {e}")
-        return None
+        print(f"Error in LS command: {str(e)}")
 
-def handle_list(control_sock, server_address):
-    """
-    Handle the LIST command to get the list of files from the server.
-    """
-    if not send_cmd(control_sock, CMD_LIST):
-        print("Error: Failed to send LIST command.")
-        return
-
-    success, message = receive_response(control_sock)
-    if not success:
-        print(f"Error: {message}")
-        return
-
-    data_port = int(message)
-    data_sock = connect_data_channel(server_address, data_port)
-    if not data_sock:
-        return
-
-    try:
-        data = recv_all(data_sock, BUFFER_SIZE).decode('utf-8')
-        print("Files on server:\n" + data)
-    finally:
-        data_sock.close()
 
 def handle_get(control_sock, server_address, filename):
-    """
-    Handle the GET command to download a file from the server.
-    """
-    if not send_cmd(control_sock, CMD_GET, filename):
-        print("Error: Failed to send GET command.")
-        return
-
-    success, message = receive_response(control_sock)
-    if not success:
-        print(f"Error: {message}")
-        return
-
-    data_port = int(message)
-    data_sock = connect_data_channel(server_address, data_port)
-    if not data_sock:
-        return
-
+    """Download file from server."""
     try:
+        # Send GET command
+        control_sock.sendall(f"get {filename}\r\n".encode('utf-8'))
+        response = control_sock.recv(BUFFER_SIZE).decode('utf-8').strip()
+        
+        if not response.startswith("success"):
+            print("Error:", response)
+            return
+        
+        # Get data port and connect
+        data_port = int(response.split()[1])
+        data_sock = connect_data_channel(server_address, data_port)
+        
+        # Receive file
+        total_bytes = 0
         with open(filename, 'wb') as f:
-            print(f"Downloading '{filename}'...")
             while True:
                 data = data_sock.recv(BUFFER_SIZE)
                 if not data:
                     break
                 f.write(data)
-        print(f"File '{filename}' downloaded successfully.")
-    finally:
+                total_bytes += len(data)
+        
+        print(f"Downloaded {filename} ({total_bytes} bytes)")
         data_sock.close()
+        
+    except Exception as e:
+        print(f"Error downloading file: {str(e)}")
+
 
 def handle_put(control_sock, server_address, filename):
-    """
-    Handle the PUT command to upload a file to the server.
-    """
+    """Upload file to server."""
     if not os.path.exists(filename):
-        print(f"Error: File '{filename}' does not exist.")
+        print(f"Error: File {filename} not found")
         return
-
-    if not send_cmd(control_sock, CMD_PUT, filename):
-        print("Error: Failed to send PUT command.")
-        return
-
-    success, message = receive_response(control_sock)
-    if not success:
-        print(f"Error: {message}")
-        return
-
-    data_port = int(message)
-    data_sock = connect_data_channel(server_address, data_port)
-    if not data_sock:
-        return
-
+        
     try:
+        # Send PUT command
+        control_sock.sendall(f"put {filename}\r\n".encode('utf-8'))
+        response = control_sock.recv(BUFFER_SIZE).decode('utf-8').strip()
+        
+        if not response.startswith("success"):
+            print("Error:", response)
+            return
+        
+        # Get data port and connect
+        data_port = int(response.split()[1])
+        data_sock = connect_data_channel(server_address, data_port)
+        
+        # Send file
+        total_bytes = 0
         with open(filename, 'rb') as f:
-            print(f"Uploading '{filename}'...")
-            data = f.read()
-            send_all(data_sock, data)
-        print(f"File '{filename}' uploaded successfully.")
-    finally:
+            while True:
+                data = f.read(BUFFER_SIZE)
+                if not data:
+                    break
+                data_sock.sendall(data)
+                total_bytes += len(data)
+        
+        print(f"Uploaded {filename} ({total_bytes} bytes)")
         data_sock.close()
+        
+    except Exception as e:
+        print(f"Error uploading file: {str(e)}")
+
 
 def main():
     if len(sys.argv) != 3:
@@ -116,40 +111,44 @@ def main():
         print("Error: Port must be an integer.")
         sys.exit(1)
 
+    control_sock = None
     try:
         control_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         control_sock.connect((server_address, server_port))
-        print(f"Connected to {server_address}:{server_port}")
-    except Exception as e:
-        print(f"Error: Unable to connect to server: {e}")
-        sys.exit(1)
+        print(f"Connected to {server_address} on port {server_port}")
+        
+        while True:
+            try:
+                user_input = input("ftp> ").strip()
+                if not user_input:
+                    continue
 
-    while True:
-        try:
-            user_input = input("ftp> ").strip()
-            if not user_input:
-                continue
+                command_parts = user_input.split()
+                command = command_parts[0].lower()
 
-            command_parts = user_input.split()
-            command = command_parts[0].upper()
-
-            if command == CMD_QUIT:
-                if send_cmd(control_sock, CMD_QUIT):
+                if command == "quit":
+                    control_sock.sendall(b"quit\r\n")
                     print("Disconnected from server.")
+                    break
+                elif command == "ls":
+                    handle_ls(control_sock)
+                elif command == "get" and len(command_parts) == 2:
+                    handle_get(control_sock, server_address, command_parts[1])
+                elif command == "put" and len(command_parts) == 2:
+                    handle_put(control_sock, server_address, command_parts[1])
+                else:
+                    print("Invalid command. Supported commands: ls, get <filename>, put <filename>, quit")
+                    
+            except Exception as e:
+                print(f"Error in command execution: {str(e)}")
                 break
-            elif command == CMD_LIST:
-                handle_list(control_sock, server_address)
-            elif command == CMD_GET and len(command_parts) == 2:
-                handle_get(control_sock, server_address, command_parts[1])
-            elif command == CMD_PUT and len(command_parts) == 2:
-                handle_put(control_sock, server_address, command_parts[1])
-            else:
-                print("Invalid command. Supported commands: LIST, GET <filename>, PUT <filename>, QUIT.")
-        except Exception as e:
-            print(f"Error: {e}")
-            break
 
-    control_sock.close()
+    except Exception as e:
+        print(f"Connection error: {str(e)}")
+    finally:
+        if control_sock:
+            control_sock.close()
+
 
 if __name__ == "__main__":
     main()
