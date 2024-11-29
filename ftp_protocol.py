@@ -19,20 +19,20 @@ def create_header(size):
     size_str = str(size)
     while len(size_str) < HEADER_SIZE:
         size_str = "0" + size_str
-    return size_str
+    return size_str.encode('utf-8')
 
 # Parse 10 byte header for file size:
 def parse_header(header):
     try:
-        return int(header)
+        return int(header.decode('utf-8'))
     except ValueError:
         return 0
 
-# For list, get, put, generate an ephemeral port; returns socket, port number
+# For list, get, put, generate an ephemeral port
 def create_data_socket():
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.bind(('', 0))  # Bind to ephemeral port
+        sock.bind(('', 0))
         sock.listen(1)
         return sock, sock.getsockname()[1]
     except socket.error:
@@ -40,6 +40,8 @@ def create_data_socket():
 
 # Problem 1: ensures all data is sent
 def send_all(sock, data):
+    if isinstance(data, str):
+        data = data.encode('utf-8')
     bytes_sent = 0
     while bytes_sent < len(data):
         sent = sock.send(data[bytes_sent:])
@@ -48,9 +50,9 @@ def send_all(sock, data):
         bytes_sent += sent
     return True
 
-# Prolem 2: ensures all data is received
+# Problem 2: ensures all data is received
 def recv_all(sock, size):
-    data = ""
+    data = b""
     while len(data) < size:
         chunk = sock.recv(min(size - len(data), BUFFER_SIZE))
         if not chunk:
@@ -58,24 +60,20 @@ def recv_all(sock, size):
         data += chunk
     return data
 
-#Transfer commands from client to server
+# Transfer commands from client to server
 def send_cmd(control_sock, command, *args):
-    cmd_str = f"{command} {' '.join(map(str, args))}"
+    cmd_str = f"{command} {' '.join(map(str, args))}".encode('utf-8')
     return send_all(control_sock, cmd_str)
 
 # Return (command, [arguments])
 def recv_cmd(control_sock):
-    """
-    Required by: "Control channel... is used to transfer all commands"
-    Returns: (command, [arguments])
-    """
     data = recv_all(control_sock, BUFFER_SIZE)
     if not data:
         return None, []
-    parts = data.strip().split()
+    parts = data.decode('utf-8').strip().split()
     return parts[0] if parts else None, parts[1:]
 
-# Server prints out success/ failure
+# Server prints out success/failure
 def send_response(control_sock, success, message=""):
     response = SUCCESS if success else FAILURE
     if message:
@@ -87,7 +85,7 @@ def receive_response(control_sock):
     data = recv_all(control_sock, BUFFER_SIZE)
     if not data:
         return False, "Connection lost"
-    parts = data.strip().split(None, 1)
+    parts = data.decode('utf-8').strip().split(None, 1)
     success = parts[0] == SUCCESS
     message = parts[1] if len(parts) > 1 else ""
     return success, message
